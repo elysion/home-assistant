@@ -20,6 +20,7 @@ REQUIREMENTS = ['https://github.com/pavoni/home-assistant-vera-api/archive/'
 
 _LOGGER = logging.getLogger(__name__)
 
+from pyvera import VeraDimmer
 
 # pylint: disable=unused-argument
 def setup_platform(hass, config, add_devices_callback, discovery_info=None):
@@ -42,7 +43,7 @@ def setup_platform(hass, config, add_devices_callback, discovery_info=None):
         devices = controller.get_devices([
             'Switch',
             'On/Off Switch',
-            'Dimmable Switch'])
+            'Dimmable Light'])
     except RequestException:
         # There was a network related error connecting to the vera controller
         _LOGGER.exception("Error communicating with Vera API")
@@ -63,19 +64,32 @@ class VeraLight(VeraSwitch):
     """ Represents a Vera Light, including dimmable. """
 
     @property
+    def brightness(self):
+        return self.vera_device.get_brightness()
+
+    @property
     def state_attributes(self):
         attr = super().state_attributes or {}
 
-        if self.vera_device.is_dimmable:
+        if isinstance(self.vera_device, VeraDimmer):
             attr[ATTR_BRIGHTNESS] = self.vera_device.get_brightness()
 
         return attr
 
     def turn_on(self, **kwargs):
-        if ATTR_BRIGHTNESS in kwargs and self.vera_device.is_dimmable:
+        if ATTR_BRIGHTNESS in kwargs:
             self.vera_device.set_brightness(kwargs[ATTR_BRIGHTNESS])
         else:
             self.vera_device.switch_on()
 
         self.last_command_send = time.time()
         self.is_on_status = True
+
+    def turn_off(self, **kwargs):
+        if isinstance(self.vera_device, VeraDimmer):
+            self.vera_device.set_brightness(0)
+        else:
+            self.vera_device.switch_off()
+
+        self.last_command_send = time.time()
+        self.is_on_status = False
