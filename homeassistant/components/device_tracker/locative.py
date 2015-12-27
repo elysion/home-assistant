@@ -65,6 +65,11 @@ def _handle_get_api_locative(handler, path_match, data):
     device_uuid = data['device']
     device_entity_id = device_uuid.replace('-', '')
 
-    _SEE(dev_id=device_entity_id, gps=gps_coords, location_name=data['id'])
+    location_name = data['id']
+
+    if 'trigger' in data and data['trigger'] == 'exit':
+        location_name = 'Away'
+
+    _SEE(dev_id=device_entity_id, gps=gps_coords, location_name=location_name)
 
     handler.write_json_message("Locative message processed")
