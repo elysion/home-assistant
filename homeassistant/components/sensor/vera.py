@@ -75,6 +75,10 @@ class VeraSensor(Entity):
             self._name = self.vera_device.name
         self.current_value = ''
         self._temperature_units = None
+        if 'unit' in self.extra_data:
+            self._unit = self.extra_data.get('unit')
+        else:
+            self._unit = None
 
     def __str__(self):
         return "%s %s %s" % (self.name, self.vera_device.deviceId, self.state)
@@ -91,7 +95,7 @@ class VeraSensor(Entity):
     @property
     def unit_of_measurement(self):
         """ Unit of measurement of this entity, if any. """
-        return self._temperature_units
+        return self._unit if self._unit else self._temperature_units
 
     @property
     def state_attributes(self):
