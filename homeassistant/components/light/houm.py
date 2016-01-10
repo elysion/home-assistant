@@ -15,7 +15,7 @@ from homeassistant.helpers.entity import ToggleEntity
 import requests
 from requests.exceptions import RequestException
 
-from socketIO_client import SocketIO
+from socketIO_client import SocketIO, LoggingNamespace
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +53,8 @@ def setup_platform(hass, config, add_devices_callback, discovery_info=None):
 
 class HoumController(object):
     def __init__(self, config, add_devices_callback):
+        self.socket_thread = None
+        self.socket = None
         self.last_command_sent = 0
         site_key = config.get('site_key')
         if not site_key:
@@ -70,17 +72,31 @@ class HoumController(object):
         self.device_id_map = {}
         self.discover_lights_and_sync_statuses()
 
-        self.socket = SocketIO('https://houmi.herokuapp.com')
-        self.socket.on('connect', self.on_connect)
-
-        self.socket_thread = Thread(target=self.socket.wait)
-        self.socket_thread.start()
+        self.reconnect_on_disconnect = True
+        self.open_socket()
 
         self.discover_and_sync_timer = IntervalTimer(5, self.discover_lights_and_sync_statuses)
         self.discover_and_sync_timer.start()
 
+    def open_socket(self):
+        print("opening socket")
+        self.socket = SocketIO(host='https://houmi.herokuapp.com', logging=LoggingNamespace)
+        self.socket.on('connect', self.on_connect)
+        self.socket_thread = Thread(target=self.socket.wait)
+        self.socket_thread.start()
+        self.socket.on('disconnect', self.reconnect)
+        self.socket.on('close', self.reconnect)
+        self.socket.on('error', self.reconnect)
+
+    def reconnect(self):
+        print(self.socket_thread.is_alive())
+        if self.reconnect_on_disconnect:
+            self.close_socket()
+            self.open_socket()
+
     # pylint: disable=unused-argument
     def close_socket(self, args=None):
+        self.reconnect_on_disconnect = False
         self.discover_and_sync_timer.stop()
         self.socket.disconnect()
         self.socket_thread.join()
@@ -89,11 +105,16 @@ class HoumController(object):
         self.socket.emit('clientReady', {'siteKey': self.SITE_KEY})
         self.socket.on('setLightState', self.update_light)
 
-    def update_light(self, updatedData):
-        updated_device = self.device_id_map.get(updatedData['_id'])
-        updated_device.bri = updatedData['bri']
-        updated_device.on = updatedData['on']
-        updated_device.update_ha_state()
+    def update_light(self, updated_data):
+        try:
+            updated_device = self.device_id_map.get(updated_data['_id'])
+            updated_device.bri = updated_data['bri']
+            updated_device.on = updated_data['on']
+            updated_device.update_ha_state()
+        except AttributeError as e:
+            _LOGGER.error("Invalid data received from socket: ")
+            if e.args:
+                _LOGGER.error(e.args)
 
     def discover_lights_and_sync_statuses(self):
         if (self.last_command_sent + 1) > time.time():
